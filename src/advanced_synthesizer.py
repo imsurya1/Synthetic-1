@@ -26,10 +26,17 @@ class AdvancedSynthesizer:
         self.encoders = {}
         self.models = {}
         self.quality_target = 95
+        self.enforce_positive = True  # Always enforce positive values
+        self.min_quality_threshold = 90  # Minimum quality threshold
 
-        # Initialize ACTGAN components
-        from gretel_synthetics.actgan import ACTGAN
-        self.actgan = ACTGAN(
+        # Initialize enhanced model parameters
+        self.model_params = {
+            'epochs': 200,  # Increased epochs for better learning
+            'batch_size': 128,
+            'learning_rate': 0.001,
+            'hidden_layers': [256, 128, 64],
+            'dropout_rate': 0.2
+        }
             epochs=100,  # More training epochs for better quality
             batch_size=256,  # Smaller batch size for better stability
             generator_dim=(512, 256),  # Larger generator network
@@ -124,7 +131,7 @@ class AdvancedSynthesizer:
         return best_data
 
     def _enforce_constraints(self, data: pd.DataFrame) -> pd.DataFrame:
-        """Enforce all data constraints strictly."""
+        """Enforce all data constraints strictly with enhanced positive value handling."""
         result = data.copy()
 
         for col, info in self.column_info.items():
@@ -134,23 +141,29 @@ class AdvancedSynthesizer:
             if info['type'] == 'numerical':
                 # Get original statistics
                 orig_stats = info.get('distribution_info', {})
-                min_val = orig_stats.get('min', 0)
-                max_val = orig_stats.get('max', result[col].max())
-                mean = orig_stats.get('mean', result[col].mean())
-                std = orig_stats.get('std', result[col].std())
+                orig_col = self.original_data[col]
+                min_val = max(0, orig_stats.get('min', 0))  # Ensure minimum is non-negative
+                max_val = orig_stats.get('max', orig_col.max())
+                mean = orig_stats.get('mean', orig_col.mean())
+                std = orig_stats.get('std', orig_col.std())
 
-                # Ensure positive values where needed
-                if min_val >= 0 or 'positive' in info.get('constraints', []):
-                    result[col] = result[col].abs()
-                    # Scale to match original distribution
-                    result[col] = result[col] * (mean / result[col].mean())
-
-                # Clip to valid range
+                # Transform negative values
+                result[col] = result[col].abs()  # Convert negatives to positive
+                
+                # Scale to match original distribution while preserving positivity
+                if result[col].mean() > 0:
+                    scale_factor = mean / result[col].mean()
+                    result[col] = result[col] * scale_factor
+                
+                # Add small constant to ensure strictly positive
+                result[col] = result[col] + 1e-6
+                
+                # Clip to valid range while preserving minimum positive value
                 result[col] = np.clip(result[col], min_val, max_val)
 
-                # Round integers
+                # Handle integers with positive constraint
                 if info.get('distribution_info', {}).get('is_integer', False):
-                    result[col] = np.round(result[col]).astype(int)
+                    result[col] = np.maximum(1, np.round(result[col])).astype(int)
 
         return result
 
@@ -217,23 +230,34 @@ class AdvancedSynthesizer:
         return result
 
     def _calculate_quality_score(self, synthetic_data: pd.DataFrame) -> float:
-        """Calculate a quality score based on statistical similarity."""
+        """Calculate an enhanced quality score with stricter criteria."""
         score = 100  # Start with a perfect score
-
+        
         for col, info in self.column_info.items():
             if col not in synthetic_data.columns:
-                score -= 5
+                score -= 10  # Higher penalty for missing columns
                 continue
 
             if info['type'] == 'numerical':
-                # Compare means and standard deviations
-                orig_mean = self.original_data[col].mean()
-                synth_mean = synthetic_data[col].mean()
-                orig_std = self.original_data[col].std()
-                synth_std = synthetic_data[col].std()
-
-                score -= abs(orig_mean - synth_mean) / max(orig_mean, 0.1) * 10
-                score -= abs(orig_std - synth_std) / max(orig_std, 0.1) * 10
+                orig_data = self.original_data[col]
+                synth_data = synthetic_data[col]
+                
+                # Strict checks for negative values
+                if synth_data.min() < 0:
+                    score -= 20  # Heavy penalty for negative values
+                
+                # Compare distributions
+                orig_mean = orig_data.mean()
+                synth_mean = synth_data.mean()
+                orig_std = orig_data.std()
+                synth_std = synth_data.std()
+                
+                # Stricter penalties for distribution mismatches
+                mean_diff = abs(orig_mean - synth_mean) / max(orig_mean, 0.1)
+                std_diff = abs(orig_std - synth_std) / max(orig_std, 0.1)
+                
+                score -= mean_diff * 15  # Increased penalty for mean difference
+                score -= std_diff * 15   # Increased penalty for std difference
 
             elif info['type'] == 'categorical':
                 # Compare value distributions
