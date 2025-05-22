@@ -14,7 +14,7 @@ class AdvancedSynthesizer:
     """
     
     def __init__(self, random_seed: Optional[int] = None):
-        """Initialize the advanced synthesizer."""
+        """Initialize the advanced synthesizer using Gretel's approach."""
         self.random_seed = random_seed
         if random_seed is not None:
             np.random.seed(random_seed)
@@ -22,14 +22,25 @@ class AdvancedSynthesizer:
         self.fitted = False
         self.original_data = None
         self.column_info = None
-        self.encoders = {}
-        self.scalers = {}
-        self.models = {}
-        self.correlation_matrix = None
+        
+        # Initialize ACTGAN components
+        from gretel_synthetics.actgan import ACTGAN
+        self.actgan = ACTGAN(
+            epochs=50,
+            batch_size=500,
+            generator_dim=(256, 256),
+            discriminator_dim=(256, 256),
+            enforcing_min_max_values=True,
+            numerical_distributions='truncnorm',
+            numerical_clustering=True,
+            pac=10,
+            log_frequency=True,
+            verbose=True
+        )
         
     def fit(self, data: pd.DataFrame, column_info: Dict[str, Any]):
         """
-        Fit the synthesizer to the original data using advanced statistical modeling.
+        Fit the synthesizer using Gretel's ACTGAN.
         
         Args:
             data: Original dataset
@@ -38,20 +49,33 @@ class AdvancedSynthesizer:
         self.original_data = data.copy()
         self.column_info = column_info
         
-        # Prepare data for modeling
-        processed_data = self._preprocess_data(data)
+        # Configure field types for ACTGAN
+        field_types = {}
+        field_transformers = {}
         
-        # Build statistical models for different column types
-        self._build_models(processed_data)
+        for col, info in column_info.items():
+            if info['type'] == 'numerical':
+                field_types[col] = 'numerical'
+                # Ensure non-negative values where needed
+                if info.get('constraints', []).count('positive'):
+                    field_transformers[col] = {'enforce_min_value': 0}
+            elif info['type'] == 'categorical':
+                field_types[col] = 'categorical'
+            elif info['type'] == 'datetime':
+                field_types[col] = 'datetime'
         
-        # Capture correlation structure
-        self._capture_correlations(processed_data)
+        # Fit ACTGAN
+        self.actgan.fit(
+            data,
+            field_types=field_types,
+            field_transformers=field_transformers
+        )
         
         self.fitted = True
     
     def generate(self, num_rows: int, unique_columns: List[str] = None) -> pd.DataFrame:
         """
-        Generate high-quality synthetic data.
+        Generate high-quality synthetic data using ACTGAN.
         
         Args:
             num_rows: Number of rows to generate
@@ -63,15 +87,17 @@ class AdvancedSynthesizer:
         if not self.fitted:
             raise ValueError("Synthesizer must be fitted before generating data")
         
-        # Generate synthetic data using advanced methods
-        synthetic_data = self._generate_correlated_data(num_rows)
+        # Generate using ACTGAN
+        synthetic_data = self.actgan.generate(num_rows)
         
-        # Apply uniqueness constraints
+        # Apply uniqueness constraints if needed
         if unique_columns:
             synthetic_data = self._enforce_uniqueness(synthetic_data, unique_columns)
         
-        # Post-process to ensure data quality
-        synthetic_data = self._post_process(synthetic_data)
+        # Ensure non-negative values for constrained columns
+        for col, info in self.column_info.items():
+            if info['type'] == 'numerical' and info.get('constraints', []).count('positive'):
+                synthetic_data[col] = synthetic_data[col].abs()
         
         return synthetic_data
     
