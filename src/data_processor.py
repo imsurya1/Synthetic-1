@@ -119,18 +119,18 @@ class DataProcessor:
         Returns:
             Detected column type
         """
-        # Check for boolean
+        # Check for boolean first
         unique_vals = set(series.dropna().astype(str).str.lower())
         if unique_vals.issubset({'true', 'false', '1', '0', 'yes', 'no', 'y', 'n'}):
             return 'boolean'
         
+        # Check for numerical BEFORE datetime (important!)
+        if self._is_numerical_column(series):
+            return 'numerical'
+        
         # Check for datetime
         if self._is_datetime_column(series):
             return 'datetime'
-        
-        # Check for numerical
-        if self._is_numerical_column(series):
-            return 'numerical'
         
         # Default to categorical
         return 'categorical'
@@ -140,7 +140,15 @@ class DataProcessor:
         if series.dtype.name.startswith('datetime'):
             return True
         
-        # Try to parse as datetime
+        # Check column name patterns that suggest datetime
+        col_name_lower = series.name.lower() if series.name else ""
+        datetime_patterns = ['date', 'time', 'created', 'updated', 'timestamp']
+        
+        # If column name doesn't suggest datetime, be very strict
+        if not any(pattern in col_name_lower for pattern in datetime_patterns):
+            return False
+        
+        # Try to parse as datetime only for datetime-named columns
         try:
             sample_size = min(len(series), 10)
             sample = series.head(sample_size)
@@ -151,13 +159,29 @@ class DataProcessor:
     
     def _is_numerical_column(self, series: pd.Series) -> bool:
         """Check if column contains numerical values."""
+        # First check if it's already numeric
         if pd.api.types.is_numeric_dtype(series):
             return True
+        
+        # Check column name patterns that suggest numerical data
+        col_name_lower = series.name.lower() if series.name else ""
+        numeric_patterns = ['price', 'amount', 'cost', 'value', 'total', 'sum', 'count', 
+                           'quantity', 'units', 'sold', 'sales', 'revenue', 'profit', 
+                           'discount', 'rate', 'percent', 'score', 'age', 'year', 'month']
+        
+        has_numeric_name = any(pattern in col_name_lower for pattern in numeric_patterns)
         
         # Try to convert to numeric
         try:
             converted = pd.to_numeric(series, errors='coerce')
-            return converted.notna().sum() / len(series) > 0.8
+            numeric_ratio = converted.notna().sum() / len(series)
+            
+            # If column name suggests numeric and decent conversion rate, it's numeric
+            if has_numeric_name and numeric_ratio > 0.6:
+                return True
+            
+            # Otherwise use stricter threshold
+            return numeric_ratio > 0.85
         except:
             return False
     
