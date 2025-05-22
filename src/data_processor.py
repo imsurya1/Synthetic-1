@@ -197,7 +197,7 @@ class DataProcessor:
             'std': float(numeric_series.std()),
             'skewness': float(numeric_series.skew()),
             'kurtosis': float(numeric_series.kurtosis()),
-            'is_integer': all(x.is_integer() for x in numeric_series if pd.notna(x)),
+            'is_integer': all(float(x).is_integer() for x in numeric_series if pd.notna(x)),
             'percentiles': {
                 '25': float(numeric_series.quantile(0.25)),
                 '50': float(numeric_series.quantile(0.50)),
