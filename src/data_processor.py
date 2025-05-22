@@ -197,7 +197,7 @@ class DataProcessor:
             'std': float(numeric_series.std()),
             'skewness': float(numeric_series.skew()),
             'kurtosis': float(numeric_series.kurtosis()),
-            'is_integer': all(float(x).is_integer() for x in numeric_series if pd.notna(x)),
+            'is_integer': self._check_if_integer_series(numeric_series),
             'percentiles': {
                 '25': float(numeric_series.quantile(0.25)),
                 '50': float(numeric_series.quantile(0.50)),
@@ -288,7 +288,7 @@ class DataProcessor:
             numeric_series = pd.to_numeric(series, errors='coerce').dropna()
             if all(x >= 0 for x in numeric_series):
                 constraints.append('positive')
-            if all(x.is_integer() for x in numeric_series if pd.notna(x)):
+            if self._check_if_integer_series(numeric_series):
                 constraints.append('integer')
         
         elif col_type == 'categorical':
@@ -297,6 +297,15 @@ class DataProcessor:
                 constraints.append('limited_values')
         
         return constraints
+    
+    def _check_if_integer_series(self, numeric_series: pd.Series) -> bool:
+        """Safely check if all values in a numeric series are integers."""
+        try:
+            if len(numeric_series) == 0:
+                return False
+            return all(abs(x - round(x)) < 1e-10 for x in numeric_series if pd.notna(x))
+        except:
+            return False
     
     def _clean_data(self, df: pd.DataFrame, column_info: Dict[str, Any]) -> pd.DataFrame:
         """
