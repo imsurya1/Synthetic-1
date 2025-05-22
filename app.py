@@ -267,8 +267,9 @@ def show_synthesis_configuration():
             random_seed=random_seed
         )
 
-def generate_synthetic_data(num_rows, synthesis_method, privacy_level, unique_columns, 
-                          preserve_correlations, constraint_handling, random_seed):
+def generate_synthetic_data(num_rows=500, synthesis_method="GaussianCopula", privacy_level="Standard", 
+                          unique_columns=None, preserve_correlations=True, 
+                          constraint_handling="Reject Sampling", random_seed=42):
     """Generate synthetic data with the specified parameters and constraints"""
     
     progress_bar = st.progress(0)

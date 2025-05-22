@@ -22,6 +22,9 @@ class AdvancedSynthesizer:
         self.fitted = False
         self.original_data = None
         self.column_info = None
+        self.scalers = {}
+        self.encoders = {}
+        self.models = {}
         
         # Initialize ACTGAN components
         from gretel_synthetics.actgan import ACTGAN
@@ -271,11 +274,20 @@ class AdvancedSynthesizer:
                     
                     # Apply original constraints
                     dist_info = info.get('distribution_info', {})
-                    if 'min' in dist_info and 'max' in dist_info:
-                        values = np.clip(values, dist_info['min'], dist_info['max'])
+                    
+                    # Ensure positive values for all numeric columns
+                    min_val = max(0, dist_info.get('min', 0))
+                    max_val = dist_info.get('max', values.max())
+                    values = np.clip(values, min_val, max_val)
+                    
+                    # Additional handling for strictly positive values
+                    if min_val == 0:
+                        # Add small epsilon to ensure strictly positive
+                        values = values + 1e-6
+                        values = values * (dist_info.get('mean', values.mean()) / values.mean())
                     
                     if dist_info.get('is_integer', False):
-                        values = values.round().astype(int)
+                        values = np.maximum(1, values.round()).astype(int)
                     
                     final_data[col] = values
                 
