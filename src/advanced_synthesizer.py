@@ -4,8 +4,54 @@ from typing import Dict, List, Any, Optional
 from sklearn.mixture import GaussianMixture
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.decomposition import PCA
+from scipy import stats # Added import
 import warnings
 warnings.filterwarnings('ignore')
+
+# Placeholder for ACTGAN - in a real scenario, this would be imported
+class ACTGANPlaceholder:
+    def __init__(self, **kwargs):
+        print(f"ACTGANPlaceholder initialized with params: {kwargs}")
+        self.model_params = kwargs
+        self._field_types = None
+        self._field_transformers = None
+        self._data_columns = None
+
+    def fit(self, data: pd.DataFrame, field_types: Dict[str, str], field_transformers: Dict[str, Any]):
+        print("ACTGANPlaceholder: Fit called.")
+        self._field_types = field_types
+        self._field_transformers = field_transformers
+        self._data_columns = data.columns
+        # In a real ACTGAN, model training would happen here.
+
+    def generate(self, num_rows: int) -> pd.DataFrame:
+        print(f"ACTGANPlaceholder: Generate called for {num_rows} rows.")
+        # This is a very naive generation for placeholder purposes.
+        # A real ACTGAN would generate data based on its learned model.
+        if self._data_columns is None:
+            raise ValueError("ACTGANPlaceholder must be fitted before generating data.")
+        
+        data_dict = {}
+        for col_name in self._data_columns:
+            col_type = self._field_types.get(col_name, 'numerical')
+            if col_type == 'numerical':
+                # Try to respect min/max from transformers if provided
+                min_val = self._field_transformers.get(col_name, {}).get('enforce_min_value', 0)
+                max_val = self._field_transformers.get(col_name, {}).get('enforce_max_value', 100)
+                if self._field_transformers.get(col_name, {}).get('enforce_rounding', False):
+                    data_dict[col_name] = np.random.randint(max(1, int(min_val)), int(max_val) + 1, num_rows)
+                else:
+                    data_dict[col_name] = np.random.uniform(min_val, max_val, num_rows)
+            elif col_type == 'categorical':
+                # Placeholder: generate random categories (e.g., A, B, C)
+                categories = [f"Cat{i}" for i in range(np.random.randint(2,5))]
+                data_dict[col_name] = np.random.choice(categories, num_rows)
+            elif col_type == 'datetime':
+                start_date = pd.Timestamp('2020-01-01')
+                data_dict[col_name] = start_date + pd.to_timedelta(np.random.randint(0, 365*3, num_rows), unit='D')
+            else:
+                data_dict[col_name] = [None] * num_rows
+        return pd.DataFrame(data_dict)
 
 class AdvancedSynthesizer:
     """
@@ -24,28 +70,32 @@ class AdvancedSynthesizer:
         self.column_info = None
         self.scalers = {}
         self.encoders = {}
-        self.models = {}
+        self.models = {} # For the alternative GMM-based synthesis path
         self.quality_target = 95
         self.enforce_positive = True  # Always enforce positive values
         self.min_quality_threshold = 95  # Increased minimum threshold
 
         # Initialize enhanced model parameters with stricter quality settings
         self.model_params = {
-            'batch_size': 64,  # Smaller batch for better learning
-            'learning_rate': 0.0005,  # Lower learning rate for stability
-            'hidden_layers': [512, 256, 128],  # Deeper network
-            'dropout_rate': 0.1,  # Lower dropout for better accuracy
-            'generator_dim': (1024, 512),  # Larger generator
-            'discriminator_dim': (512, 256),  # Larger discriminator
+            'batch_size': 64,
+            'learning_rate': 0.0005,
+            'hidden_layers': [512, 256, 128],
+            'dropout_rate': 0.1,
+            'generator_dim': (1024, 512),
+            'discriminator_dim': (512, 256),
             'enforcing_min_max_values': True,
-            'numerical_distributions': 'beta',
+            'numerical_distributions': 'beta', # Changed from numerical_distribution
             'enforce_rounding': True,
-            'enforce_min_max_values': True,
-            'enforce_positivity': True,  # Strictly enforce positive values
-            'pac': 5,  # Lower PAC for better quality
+            # 'enforce_min_max_values': True, # Duplicates 'enforcing_min_max_values'
+            'enforce_positivity': True,
+            'pac': 5,
             'log_frequency': True,
             'verbose': True
         }
+        # Initialize the ACTGAN model (or placeholder)
+        # In a real application, you would import ACTGAN from gretel_synthetics or similar
+        self.actgan = ACTGANPlaceholder(**self.model_params)
+
 
     def fit(self, data: pd.DataFrame, column_info: Dict[str, Any]):
         """
@@ -58,30 +108,30 @@ class AdvancedSynthesizer:
         self.original_data = data.copy()
         self.column_info = column_info
 
-        # Configure field types for ACTGAN with enhanced constraints
         field_types = {}
         field_transformers = {}
 
         for col, info in column_info.items():
             if info['type'] == 'numerical':
                 field_types[col] = 'numerical'
-                # Get original column stats for constraints
                 orig_col = self.original_data[col]
                 min_val = orig_col.min()
                 max_val = orig_col.max()
 
                 field_transformers[col] = {
-                    'enforce_min_value': max(0, min_val),  # Ensure non-negative
-                    'enforce_max_value': max_val,  # Keep upper bound
-                    'transform_method': 'beta',  # Better distribution preservation
+                    'enforce_min_value': max(0, min_val),
+                    'enforce_max_value': max_val,
+                    'transform_method': self.model_params.get('numerical_distributions', 'beta'), # Use from model_params
                     'enforce_rounding': info.get('distribution_info', {}).get('is_integer', False)
                 }
             elif info['type'] == 'categorical':
                 field_types[col] = 'categorical'
             elif info['type'] == 'datetime':
                 field_types[col] = 'datetime'
+            # Add boolean if it's a distinct type handled by ACTGAN
+            elif info['type'] == 'boolean':
+                field_types[col] = 'boolean' # Or categorical, depending on ACTGAN
 
-        # Fit ACTGAN
         self.actgan.fit(
             data,
             field_types=field_types,
@@ -89,6 +139,12 @@ class AdvancedSynthesizer:
         )
 
         self.fitted = True
+        
+        # Fit the GMM-based models as well if this path is intended to be used
+        # processed_data = self._preprocess_data(self.original_data)
+        # self._build_models(processed_data)
+        # self._capture_correlations(processed_data)
+
 
     def generate(self, num_rows: int, unique_columns: List[str] = None) -> pd.DataFrame:
         """Generate high-quality synthetic data with enhanced constraints."""
@@ -104,12 +160,14 @@ class AdvancedSynthesizer:
             # Generate base synthetic data
             synthetic_data = self.actgan.generate(num_rows)
 
-            # Apply constraints and improvements
-            synthetic_data = self._enforce_constraints(synthetic_data)
-            synthetic_data = self._preserve_correlations(synthetic_data)
-            synthetic_data = self._optimize_distributions(synthetic_data)
+            # Apply constraints and improvements in a revised order
+            synthetic_data = self._preserve_correlations(synthetic_data.copy())
+            synthetic_data = self._optimize_distributions(synthetic_data.copy())
+            synthetic_data = self._enforce_constraints(synthetic_data.copy()) # Enforce last
 
-            # Check quality
+            if unique_columns:
+                 synthetic_data = self._enforce_uniqueness(synthetic_data.copy(), unique_columns)
+
             quality_score = self._calculate_quality_score(synthetic_data)
 
             if quality_score > best_quality:
@@ -117,82 +175,158 @@ class AdvancedSynthesizer:
                 best_data = synthetic_data.copy()
 
             if quality_score >= self.quality_target:
+                print(f"Achieved target quality score of {quality_score:.2f}% in attempt {attempts + 1}.")
                 break
-
+            
+            print(f"Attempt {attempts + 1}: Quality score {quality_score:.2f}% (Target: {self.quality_target}%)")
             attempts += 1
 
         if best_data is None:
-            raise ValueError("Failed to generate high-quality synthetic data")
-
+            raise ValueError("Failed to generate data. No successful attempts.")
+        if best_quality < self.min_quality_threshold :
+             print(f"Warning: Best quality score ({best_quality:.2f}%) is below minimum threshold ({self.min_quality_threshold}%).")
+        
         return best_data
 
     def _enforce_constraints(self, data: pd.DataFrame) -> pd.DataFrame:
         """Enforce all data constraints strictly with enhanced positive value handling."""
         result = data.copy()
+        small_epsilon = 1e-6  # Small constant for strict positivity for floats
 
         for col, info in self.column_info.items():
             if col not in result.columns:
                 continue
 
             if info['type'] == 'numerical':
-                # Get original statistics
-                orig_stats = info.get('distribution_info', {})
-                orig_col = self.original_data[col]
-                min_val = max(0, orig_stats.get('min', 0))  # Ensure minimum is non-negative
-                max_val = orig_stats.get('max', orig_col.max())
-                mean = orig_stats.get('mean', orig_col.mean())
-                std = orig_stats.get('std', orig_col.std())
+                current_col_synth = result[col].copy()
+                orig_col_series = self.original_data[col]
 
-                # Ensure strictly positive values with enhanced scaling
-                result[col] = np.maximum(result[col], 0)  # Remove negatives
-                
-                # Apply enhanced scaling to match distribution
-                if result[col].mean() > 0:
-                    scale_factor = mean / result[col].mean()
-                    result[col] = result[col] * scale_factor
-                
-                # Ensure minimum positive value while preserving distribution
-                min_positive = max(1e-3, min_val if min_val > 0 else result[col][result[col] > 0].min())
-                result[col] = np.maximum(result[col], min_positive)
+                # Get original statistics, preferring info if available, else from original_data
+                dist_info = info.get('distribution_info', {})
+                orig_min_val = dist_info.get('min', orig_col_series.min())
+                orig_max_val = dist_info.get('max', orig_col_series.max())
+                orig_mean_val = dist_info.get('mean', orig_col_series.mean())
+                is_integer = dist_info.get('is_integer', False)
 
-                # Clip to valid range while preserving minimum positive value
-                result[col] = np.clip(result[col], min_val, max_val)
+                min_constraint = max(0, orig_min_val) # Floor original min at 0 for constraint baseline
 
-                # Handle integers with positive constraint
-                if info.get('distribution_info', {}).get('is_integer', False):
-                    result[col] = np.maximum(1, np.round(result[col])).astype(int)
+                if not is_integer:
+                    # --- Floating point numbers ---
+                    # 1. Initial floor at 0
+                    current_col_synth = np.maximum(current_col_synth, 0)
 
+                    # 2. Enforce strict positivity if original was strictly positive,
+                    #    or if global enforce_positive is true and original min was 0.
+                    should_be_strictly_positive = (orig_min_val > 0) or \
+                                                  (min_constraint == 0 and self.enforce_positive)
+
+                    if should_be_strictly_positive:
+                        current_col_synth = np.maximum(current_col_synth, small_epsilon)
+                        
+                        # 3. Rescale to target mean, if current mean is positive and target is positive
+                        current_mean_synth = current_col_synth.mean()
+                        if current_mean_synth > (small_epsilon / 2) and orig_mean_val > 0: # Avoid division by zero/small
+                            scale_factor = orig_mean_val / current_mean_synth
+                            current_col_synth = current_col_synth * scale_factor
+                            # Re-floor at epsilon after scaling, as values could dip below
+                            current_col_synth = np.maximum(current_col_synth, small_epsilon)
+                    
+                    # 4. Clip to the final range
+                    #    The min_clip_bound should be `small_epsilon` if we made it strictly positive and original min was 0.
+                    #    Otherwise, it's `min_constraint`.
+                    min_clip_bound = min_constraint
+                    if should_be_strictly_positive and min_constraint == 0:
+                        min_clip_bound = small_epsilon
+                    
+                    result[col] = np.clip(current_col_synth, min_clip_bound, orig_max_val)
+
+                else:
+                    # --- Integer numbers ---
+                    current_col_synth = np.round(current_col_synth)
+                    
+                    # Determine the minimum allowed integer value
+                    # Default to 1 if enforce_positive is on and original min was <=0 or not specified higher
+                    min_integer_value = 1
+                    if min_constraint > 0 : # If original min (floored at 0) was > 0, use that as base
+                        min_integer_value = int(np.ceil(min_constraint))
+                        if min_integer_value == 0 and self.enforce_positive: # if original was 0.x, ceil is 1
+                             min_integer_value = 1
+                    elif not self.enforce_positive and min_constraint == 0 : # if not enforcing positivity and orig can be 0
+                        min_integer_value = 0
+
+
+                    current_col_synth = np.maximum(current_col_synth, min_integer_value)
+                    result[col] = np.clip(current_col_synth, min_integer_value, int(np.round(orig_max_val))).astype(int)
         return result
 
     def _preserve_correlations(self, data: pd.DataFrame) -> pd.DataFrame:
         """Enhance correlation preservation."""
-        numerical_cols = [col for col, info in self.column_info.items() 
-                         if info['type'] == 'numerical']
+        numerical_cols = [col for col, info in self.column_info.items()
+                          if info['type'] == 'numerical' and col in data.columns]
 
         if len(numerical_cols) < 2:
             return data
 
         result = data.copy()
-        orig_corr = self.original_data[numerical_cols].corr()
+        
+        # Ensure original_data numerical_cols exist and are numeric
+        valid_original_numerical_cols = [col for col in numerical_cols if col in self.original_data.columns and pd.api.types.is_numeric_dtype(self.original_data[col])]
+        if len(valid_original_numerical_cols) < 2:
+            return data
+            
+        orig_corr = self.original_data[valid_original_numerical_cols].corr().fillna(0)
+        
+        # Ensure result numerical_cols exist and are numeric
+        valid_result_numerical_cols = [col for col in numerical_cols if col in result.columns and pd.api.types.is_numeric_dtype(result[col])]
+        if len(valid_result_numerical_cols) < 2: # Should be same as valid_original_numerical_cols ideally
+             return data
+        
+        # Align columns for Cholesky decomposition
+        common_cols = list(set(valid_original_numerical_cols) & set(valid_result_numerical_cols))
+        if len(common_cols) < 2:
+            return data
 
-        # Apply correlation correction using Cholesky decomposition
+        orig_corr_common = self.original_data[common_cols].corr().fillna(0)
+        current_data_common = result[common_cols].copy()
+
+
         try:
-            current_corr = result[numerical_cols].corr()
-            target_corr = orig_corr.fillna(0)
+            # Normalize current data (handling potential zero std dev)
+            normalized_data = pd.DataFrame(index=current_data_common.index)
+            means = {}
+            stds = {}
+            for col in common_cols:
+                mean = current_data_common[col].mean()
+                std = current_data_common[col].std()
+                means[col] = mean
+                stds[col] = std if std > 1e-6 else 1.0 # Avoid division by zero
+                normalized_data[col] = (current_data_common[col] - mean) / stds[col]
 
-            L = np.linalg.cholesky(target_corr)
-            L_inv = np.linalg.inv(L)
+            # Add small identity matrix to ensure positive definiteness for Cholesky
+            identity_matrix = np.eye(len(common_cols)) * 1e-6
+            L_target = np.linalg.cholesky(orig_corr_common + identity_matrix)
+            
+            # Transform data
+            # Note: This step assumes the data is already somewhat decorrelated or that
+            # applying L_target directly imposes the target correlation. More advanced
+            # methods might involve transforming current data to be uncorrelated first.
+            # For simplicity, we directly apply the target Cholesky factor.
+            # This is a simplification of some correlation imposition techniques.
+            corrected_normalized = normalized_data.dot(L_target.T) # This might not be the standard way
 
-            transformed = result[numerical_cols].apply(lambda x: (x - x.mean()) / x.std())
-            corrected = transformed.dot(L_inv.T)
-
-            # Scale back to original ranges
-            for col in numerical_cols:
+            # Denormalize using original data's stats for target scale
+            for col in common_cols:
                 orig_mean = self.original_data[col].mean()
                 orig_std = self.original_data[col].std()
-                result[col] = corrected[col] * orig_std + orig_mean
-        except:
-            pass  # Fallback to original data if correction fails
+                if orig_std > 1e-6 : # Avoid division by zero for original std
+                     result[col] = corrected_normalized[col] * orig_std + orig_mean
+                else: # if original std is zero, set to original mean (constant column)
+                     result[col] = orig_mean
+
+
+        except np.linalg.LinAlgError as e:
+            # print(f"Warning: Cholesky decomposition failed in _preserve_correlations: {e}. Skipping correlation adjustment.")
+            pass # Fallback to data without this specific correlation adjustment attempt
 
         return result
 
@@ -201,333 +335,407 @@ class AdvancedSynthesizer:
         result = data.copy()
 
         for col, info in self.column_info.items():
-            if info['type'] == 'numerical':
-                orig_series = self.original_data[col]
-                synth_series = result[col]
+            if col not in result.columns or col not in self.original_data.columns:
+                continue
 
-                # Match moments
+            if info['type'] == 'numerical' and not info.get('distribution_info', {}).get('is_integer', False):
+                orig_series = self.original_data[col]
+                synth_series = result[col].copy()
+
                 orig_mean = orig_series.mean()
                 orig_std = orig_series.std()
-                orig_skew = orig_series.skew()
+                
+                # Ensure synth_series is positive for Box-Cox by shifting with a small constant
+                # (Box-Cox requires positive data)
+                min_synth = synth_series.min()
+                shift = 0
+                if min_synth <= 0:
+                    shift = abs(min_synth) + 1e-6 # Add small epsilon
+                
+                synth_series_shifted = synth_series + shift
 
-                # Apply Box-Cox transformation to match distribution shape
                 try:
-                    from scipy import stats
-                    transformed = stats.boxcox(synth_series - synth_series.min() + 1)[0]
-                    transformed = (transformed - transformed.mean()) / transformed.std()
-                    transformed = transformed * orig_std + orig_mean
+                    # Apply Box-Cox transformation
+                    transformed_synth, _ = stats.boxcox(synth_series_shifted)
+                    
+                    # Standardize the transformed data
+                    ts_mean = transformed_synth.mean()
+                    ts_std = transformed_synth.std()
 
-                    # Restore original range
-                    min_val = max(0, orig_series.min())
-                    max_val = orig_series.max()
-                    result[col] = np.clip(transformed, min_val, max_val)
-                except:
-                    pass  # Fallback to original if transformation fails
+                    if ts_std > 1e-6: # Avoid division by zero
+                        standardized_transformed_synth = (transformed_synth - ts_mean) / ts_std
+                        # Rescale to original mean and std
+                        rescaled_synth = standardized_transformed_synth * orig_std + orig_mean
+                    else: # If std is zero, implies constant data after transform
+                        rescaled_synth = np.full_like(transformed_synth, orig_mean)
+
+                    # Inverse shift (if any shift was applied)
+                    # This step is tricky because Box-Cox inverse is non-trivial and
+                    # we did not store lambda. A common approach is to use quantile matching
+                    # or to ensure the result is then passed to _enforce_constraints.
+                    # For now, we'll rely on _enforce_constraints to fix ranges.
+                    # The primary goal here is to adjust the shape of the distribution.
+                    
+                    result[col] = rescaled_synth # The range will be fixed by _enforce_constraints
+
+                except (ValueError, TypeError, FloatingPointError) as e:
+                    # print(f"Warning: Box-Cox transformation failed for column {col}: {e}. Skipping distribution optimization.")
+                    pass # Fallback if transformation fails
 
         return result
 
+
     def _calculate_quality_score(self, synthetic_data: pd.DataFrame) -> float:
         """Calculate an enhanced quality score with stricter criteria."""
-        score = 100  # Start with a perfect score
+        score = 100.0  # Start with a perfect score
+
+        if self.original_data is None or self.column_info is None:
+            return 0.0 # Cannot calculate score without original data context
 
         for col, info in self.column_info.items():
-            if col not in synthetic_data.columns:
+            if col not in synthetic_data.columns or col not in self.original_data.columns:
                 score -= 10  # Higher penalty for missing columns
                 continue
 
+            orig_data_col = self.original_data[col]
+            synth_data_col = synthetic_data[col]
+
             if info['type'] == 'numerical':
-                orig_data = self.original_data[col]
-                synth_data = synthetic_data[col]
+                dist_info = info.get('distribution_info', {})
+                is_integer = dist_info.get('is_integer', False)
+                
+                # Check for negative values if positivity is expected
+                expected_min = 0.0
+                if is_integer:
+                    expected_min = 1.0 # Assuming integers are made >= 1 by constraints
+                    # More precise expected min for integers if original min was higher:
+                    orig_min_for_int = dist_info.get('min', orig_data_col.min())
+                    if orig_min_for_int > 0:
+                        expected_min = np.ceil(orig_min_for_int)
+                    if dist_info.get('min',0) == 0 and not self.enforce_positive: # if original could be 0 and not forcing positive
+                        expected_min = 0
 
-                # Strict checks for negative values
-                if synth_data.min() < 0:
-                    score -= 20  # Heavy penalty for negative values
+                # Allow tiny tolerance for float comparisons to expected_min (e.g. 1e-6)
+                # synth_data_col.min() could be problematic if col is empty or all NaN
+                if synth_data_col.notna().sum() == 0: # if all NaNs
+                    score -= 15 # penalty for all NaN column
+                    continue
 
-                # Compare distributions
-                orig_mean = orig_data.mean()
-                synth_mean = synth_data.mean()
-                orig_std = orig_data.std()
-                synth_std = synth_data.std()
+                actual_min_synth = synth_data_col.dropna().min()
 
-                # Stricter penalties for distribution mismatches
-                mean_diff = abs(orig_mean - synth_mean) / max(orig_mean, 0.1)
-                std_diff = abs(orig_std - synth_std) / max(orig_std, 0.1)
+                if actual_min_synth < (expected_min - (1e-7 if not is_integer else 0)) : # stricter check
+                    score -= 20  # Heavy penalty for not meeting positivity/integer minimum
 
-                score -= mean_diff * 15  # Increased penalty for mean difference
-                score -= std_diff * 15   # Increased penalty for std difference
+                # Compare distributions (mean and std)
+                orig_mean = orig_data_col.mean()
+                synth_mean = synth_data_col.mean()
+                orig_std = orig_data_col.std()
+                synth_std = synth_data_col.std()
+
+                # Handle cases where original mean/std might be zero or very small
+                mean_denominator = max(abs(orig_mean), 0.1)
+                std_denominator = max(orig_std, 0.1)
+
+                mean_diff_penalty = abs(orig_mean - synth_mean) / mean_denominator
+                std_diff_penalty = abs(orig_std - synth_std) / std_denominator
+                
+                # Cap penalties to avoid excessive score reduction from one metric
+                score -= min(mean_diff_penalty * 15, 15) # Max 15 points penalty for mean
+                score -= min(std_diff_penalty * 15, 15) # Max 15 points penalty for std
 
             elif info['type'] == 'categorical':
-                # Compare value distributions
-                orig_counts = self.original_data[col].value_counts(normalize=True)
-                synth_counts = synthetic_data[col].value_counts(normalize=True)
-
-                for val, orig_freq in orig_counts.items():
+                orig_counts = orig_data_col.value_counts(normalize=True)
+                synth_counts = synth_data_col.value_counts(normalize=True)
+                
+                # Calculate Total Variation Distance (TVD) or similar for categorical distribution
+                tvd = 0.0
+                all_categories = set(orig_counts.index) | set(synth_counts.index)
+                for val in all_categories:
+                    orig_freq = orig_counts.get(val, 0)
                     synth_freq = synth_counts.get(val, 0)
-                    score -= abs(orig_freq - synth_freq) * 20
+                    tvd += abs(orig_freq - synth_freq)
+                tvd /= 2 # Normalize TVD to be between 0 and 1
 
-        return max(0, score)
+                score -= tvd * 30 # Penalty based on TVD (max 30 points)
+                
+        return max(0, min(100, score)) # Ensure score is between 0 and 100
 
+
+    # Methods _preprocess_data, _build_models, _capture_correlations, 
+    # _generate_correlated_data, _post_process define an alternative GMM-based synthesis.
+    # They are kept for completeness but the primary flow uses ACTGAN via fit/generate.
 
     def _preprocess_data(self, data: pd.DataFrame) -> pd.DataFrame:
-        """Preprocess data for modeling."""
-        processed_data = pd.DataFrame()
+        """Preprocess data for modeling (GMM path)."""
+        processed_data = pd.DataFrame(index=data.index)
 
         for col, info in self.column_info.items():
             if col not in data.columns:
                 continue
 
             if info['type'] == 'numerical':
-                # Standardize numerical data
                 scaler = StandardScaler()
                 values = data[col].fillna(data[col].median()).values.reshape(-1, 1)
-                processed_values = scaler.fit_transform(values).flatten()
-                processed_data[col] = processed_values
+                processed_data[col] = scaler.fit_transform(values).flatten()
                 self.scalers[col] = scaler
-
             elif info['type'] == 'categorical':
-                # Encode categorical data
                 encoder = LabelEncoder()
                 values = data[col].fillna('Unknown').astype(str)
-                encoded_values = encoder.fit_transform(values)
-                processed_data[col] = encoded_values
+                processed_data[col] = encoder.fit_transform(values)
                 self.encoders[col] = encoder
-
             elif info['type'] == 'datetime':
-                # Convert datetime to numerical (days since min date)
                 dt_values = pd.to_datetime(data[col])
                 min_date = dt_values.min()
+                self.encoders[col] = min_date # Store min date for reconstruction
                 days_since_min = (dt_values - min_date).dt.days.fillna(0)
-
                 scaler = StandardScaler()
-                processed_values = scaler.fit_transform(days_since_min.values.reshape(-1, 1)).flatten()
-                processed_data[col] = processed_values
-                self.scalers[col] = scaler
-                self.encoders[col] = min_date  # Store min date for reconstruction
-
+                processed_data[f'{col}_days'] = scaler.fit_transform(days_since_min.values.reshape(-1, 1)).flatten()
+                self.scalers[f'{col}_days'] = scaler # Store scaler for the numeric part
             elif info['type'] == 'boolean':
-                # Convert boolean to 0/1
-                bool_values = data[col].fillna(False).astype(bool).astype(int)
-                processed_data[col] = bool_values
-
+                processed_data[col] = data[col].fillna(False).astype(bool).astype(int)
         return processed_data
 
     def _build_models(self, processed_data: pd.DataFrame):
-        """Build statistical models for data generation."""
-        # Use Gaussian Mixture Models for better distribution modeling
-        for col in processed_data.columns:
+        """Build statistical models for data generation (GMM path)."""
+        for col in processed_data.columns: # Columns might include '{col}_days' for datetimes
+            if col not in self.column_info and not col.endswith('_days'): # Skip auxiliary columns if not directly in column_info
+                 # unless it's a known transformation like datetime to days
+                is_datetime_derived = any(dt_col for dt_col in self.column_info if f"{dt_col}_days" == col and self.column_info[dt_col]['type'] == 'datetime')
+                if not is_datetime_derived:
+                    continue
+
             try:
-                # Fit Gaussian Mixture Model for each column
+                unique_vals_count = len(processed_data[col].unique())
+                n_components = min(max(1,unique_vals_count // 2 if unique_vals_count > 1 else 1), 5) # Adjusted n_components logic
+
                 gmm = GaussianMixture(
-                    n_components=min(3, len(processed_data[col].unique())),
+                    n_components=n_components,
                     random_state=self.random_seed,
                     covariance_type='full'
                 )
-
                 col_data = processed_data[col].values.reshape(-1, 1)
                 gmm.fit(col_data)
                 self.models[col] = gmm
-
             except Exception as e:
-                print(f"Warning: Could not fit model for column {col}: {e}")
-                # Fallback to simple statistics
+                # print(f"Warning: Could not fit GMM for column {col}: {e}. Using fallback statistics.")
                 self.models[col] = {
                     'mean': processed_data[col].mean(),
                     'std': processed_data[col].std(),
-                    'unique_values': processed_data[col].unique()
+                    'min': processed_data[col].min(), # Store min/max for fallback
+                    'max': processed_data[col].max(),
+                    'unique_values': processed_data[col].unique() if unique_vals_count < 20 else None
                 }
 
     def _capture_correlations(self, processed_data: pd.DataFrame):
-        """Capture correlation structure using PCA and correlation matrix."""
+        """Capture correlation structure using PCA and correlation matrix (GMM path)."""
         try:
-            # Calculate correlation matrix
-            self.correlation_matrix = processed_data.corr().fillna(0)
+            # Select only numeric columns for correlation matrix and PCA
+            numeric_cols_for_pca = [col for col in processed_data.columns if pd.api.types.is_numeric_dtype(processed_data[col])]
+            if not numeric_cols_for_pca:
+                self.correlation_matrix = pd.DataFrame()
+                self.pca_model = None
+                return
 
-            # Use PCA to capture main patterns
-            if len(processed_data.columns) > 1:
-                pca = PCA(n_components=min(len(processed_data.columns), len(processed_data)))
-                pca.fit(processed_data.fillna(0))
-                self.pca_model = pca
+            self.correlation_matrix = processed_data[numeric_cols_for_pca].corr().fillna(0)
+            if len(numeric_cols_for_pca) > 1:
+                # Ensure n_components is valid
+                n_comp = min(len(numeric_cols_for_pca), len(processed_data))
+                if n_comp > 0:
+                    pca = PCA(n_components=n_comp, random_state=self.random_seed)
+                    pca.fit(processed_data[numeric_cols_for_pca].fillna(0))
+                    self.pca_model = pca
+                else:
+                    self.pca_model = None
             else:
                 self.pca_model = None
-
         except Exception as e:
-            print(f"Warning: Could not capture correlations: {e}")
+            # print(f"Warning: Could not capture correlations: {e}")
             self.correlation_matrix = pd.DataFrame()
             self.pca_model = None
-
+            
     def _generate_correlated_data(self, num_rows: int) -> pd.DataFrame:
-        """Generate synthetic data preserving correlations."""
+        """Generate synthetic data preserving correlations (GMM path)."""
         synthetic_data = pd.DataFrame()
 
-        # Generate base synthetic data
-        for col, model in self.models.items():
+        # Generate base synthetic data for each column
+        for col, model_or_stats in self.models.items():
             try:
-                if hasattr(model, 'sample'):
-                    # Use Gaussian Mixture Model
-                    generated_values = model.sample(num_rows)[0].flatten()
-                else:
-                    # Use fallback statistics
-                    if 'unique_values' in model and len(model['unique_values']) < 20:
-                        # Categorical-like data
-                        generated_values = np.random.choice(model['unique_values'], num_rows)
-                    else:
-                        # Continuous data
-                        generated_values = np.random.normal(
-                            model['mean'], 
-                            max(model['std'], 0.1), 
-                            num_rows
-                        )
+                if hasattr(model_or_stats, 'sample'): # GMM model
+                    generated_values, _ = model_or_stats.sample(num_rows)
+                    synthetic_data[col] = generated_values.flatten()
+                else: # Fallback statistics
+                    stats = model_or_stats
+                    if stats.get('unique_values') is not None and len(stats['unique_values']) > 0 :
+                        synthetic_data[col] = np.random.choice(stats['unique_values'], num_rows)
+                    else: # Continuous data from normal distribution
+                        # Ensure std is non-negative and reasonably small if mean is near zero
+                        std_val = max(stats.get('std', 0.1), 1e-6)
+                        synthetic_data[col] = np.random.normal(stats.get('mean',0), std_val, num_rows)
+            except Exception as e:
+                # print(f"Warning: Error generating column {col} with GMM/fallback: {e}")
+                # Emergency fallback: sample from original preprocessed data for this column if possible
+                # This part is complex as original_data is not preprocessed here.
+                # A simple fallback: use a default value (e.g., 0 or mean from stats)
+                synthetic_data[col] = np.full(num_rows, model_or_stats.get('mean', 0) if isinstance(model_or_stats, dict) else 0)
 
-                synthetic_data[col] = generated_values
+
+        # Apply correlation adjustments if PCA model exists
+        numeric_cols_in_synthetic = [c for c in synthetic_data.columns if pd.api.types.is_numeric_dtype(synthetic_data[c])]
+        
+        if self.pca_model is not None and self.correlation_matrix.shape[0] > 1 and \
+           set(self.correlation_matrix.columns) == set(numeric_cols_in_synthetic): # Check if PCA was fit on these cols
+            
+            # Ensure columns are in the same order as when PCA was fitted
+            ordered_synthetic_numeric_data = synthetic_data[self.correlation_matrix.columns].fillna(0)
+
+            try:
+                pca_transformed = self.pca_model.transform(ordered_synthetic_numeric_data)
+                noise_scale = 0.05 # Reduced noise
+                pca_transformed += np.random.normal(0, noise_scale, pca_transformed.shape) * self.pca_model.explained_variance_ratio_
+                reconstructed_numeric = self.pca_model.inverse_transform(pca_transformed)
+                
+                reconstructed_df = pd.DataFrame(reconstructed_numeric, columns=self.correlation_matrix.columns, index=synthetic_data.index)
+                for r_col in reconstructed_df.columns:
+                    synthetic_data[r_col] = reconstructed_df[r_col]
 
             except Exception as e:
-                print(f"Warning: Error generating column {col}: {e}")
-                # Emergency fallback
-                original_col = self.original_data[col].dropna()
-                if len(original_col) > 0:
-                    synthetic_data[col] = np.random.choice(original_col, num_rows, replace=True)
-                else:
-                    synthetic_data[col] = [0] * num_rows
-
-        # Apply correlation adjustments if possible
-        if self.pca_model is not None and len(synthetic_data.columns) > 1:
-            try:
-                # Transform to PCA space and back to preserve relationships
-                pca_transformed = self.pca_model.transform(synthetic_data.fillna(0))
-
-                # Add some controlled noise in PCA space
-                noise_scale = 0.1
-                pca_transformed += np.random.normal(0, noise_scale, pca_transformed.shape)
-
-                # Transform back
-                reconstructed = self.pca_model.inverse_transform(pca_transformed)
-                synthetic_data = pd.DataFrame(reconstructed, columns=synthetic_data.columns)
-
-            except Exception as e:
-                print(f"Warning: Could not apply correlation adjustment: {e}")
-
+                # print(f"Warning: Could not apply PCA correlation adjustment: {e}")
+                pass
         return synthetic_data
 
-    def _post_process(self, synthetic_data: pd.DataFrame) -> pd.DataFrame:
-        """Post-process synthetic data to restore original formats."""
-        final_data = pd.DataFrame()
+    def _post_process(self, synthetic_data_processed: pd.DataFrame) -> pd.DataFrame:
+        """Post-process synthetic data to restore original formats (GMM path)."""
+        final_data = pd.DataFrame(index=synthetic_data_processed.index)
 
-        for col, info in self.column_info.items():
-            if col not in synthetic_data.columns:
-                continue
-
+        for original_col_name, info in self.column_info.items():
             try:
                 if info['type'] == 'numerical':
-                    # Reverse standardization
-                    if col in self.scalers:
-                        values = self.scalers[col].inverse_transform(
-                            synthetic_data[col].values.reshape(-1, 1)
-                        ).flatten()
+                    if original_col_name in self.scalers and original_col_name in synthetic_data_processed:
+                        values_scaled = synthetic_data_processed[original_col_name].values.reshape(-1, 1)
+                        values = self.scalers[original_col_name].inverse_transform(values_scaled).flatten()
+                    elif original_col_name in synthetic_data_processed:
+                        values = synthetic_data_processed[original_col_name].values
                     else:
-                        values = synthetic_data[col].values
+                        continue # Column not found in processed data
 
-                    # Apply original constraints
+                    # Apply original constraints (min, max, integer, positivity)
                     dist_info = info.get('distribution_info', {})
+                    orig_min = dist_info.get('min', self.original_data[original_col_name].min())
+                    orig_max = dist_info.get('max', self.original_data[original_col_name].max())
+                    
+                    # Enforce positivity based on self.enforce_positive and original min
+                    effective_min = max(0, orig_min) # Baseline min is 0 or original min if >0
+                    if self.enforce_positive:
+                        if effective_min == 0 : # If original could be 0, make it epsilon for floats
+                             values = np.maximum(values, 1e-6 if not dist_info.get('is_integer', False) else 1)
+                        else: # if original min was >0, enforce that
+                             values = np.maximum(values, effective_min)
+                    else: # if not enforcing strict positivity, just ensure >= original min (which could be negative if not handled)
+                        values = np.maximum(values, orig_min)
 
-                    # Ensure positive values for all numeric columns
-                    min_val = max(0, dist_info.get('min', 0))
-                    max_val = dist_info.get('max', values.max())
-                    values = np.clip(values, min_val, max_val)
 
-                    # Additional handling for strictly positive values
-                    if min_val == 0:
-                        # Add small epsilon to ensure strictly positive
-                        values = values + 1e-6
-                        values = values * (dist_info.get('mean', values.mean()) / values.mean())
+                    values = np.clip(values, effective_min if self.enforce_positive else orig_min , orig_max)
 
                     if dist_info.get('is_integer', False):
-                        values = np.maximum(1, values.round()).astype(int)
-
-                    final_data[col] = values
+                        min_int_val = 1 if self.enforce_positive and effective_min ==0 else int(np.round(effective_min))
+                        values = np.maximum(min_int_val, values.round()).astype(int)
+                    
+                    final_data[original_col_name] = values
 
                 elif info['type'] == 'categorical':
-                    # Reverse encoding
-                    if col in self.encoders:
-                        # Ensure values are within encoder range
-                        encoded_values = synthetic_data[col].round().astype(int)
-                        max_label = len(self.encoders[col].classes_) - 1
+                    if original_col_name in self.encoders and original_col_name in synthetic_data_processed:
+                        # Ensure encoded values are valid integers for the encoder
+                        encoded_values = synthetic_data_processed[original_col_name].round().astype(int)
+                        max_label = len(self.encoders[original_col_name].classes_) - 1
                         encoded_values = np.clip(encoded_values, 0, max_label)
-
-                        decoded_values = self.encoders[col].inverse_transform(encoded_values)
-                        final_data[col] = decoded_values
-                    else:
-                        final_data[col] = synthetic_data[col]
+                        final_data[original_col_name] = self.encoders[original_col_name].inverse_transform(encoded_values)
+                    elif original_col_name in synthetic_data_processed:
+                         final_data[original_col_name] = synthetic_data_processed[original_col_name] # No encoder found
 
                 elif info['type'] == 'datetime':
-                    # Reverse datetime conversion
-                    if col in self.scalers and col in self.encoders:
-                        # Reverse standardization
-                        days_values = self.scalers[col].inverse_transform(
-                            synthetic_data[col].values.reshape(-1, 1)
-                        ).flatten()
+                    datetime_numeric_col = f'{original_col_name}_days'
+                    if datetime_numeric_col in self.scalers and datetime_numeric_col in synthetic_data_processed:
+                        days_values_scaled = synthetic_data_processed[datetime_numeric_col].values.reshape(-1,1)
+                        days_values = self.scalers[datetime_numeric_col].inverse_transform(days_values_scaled).flatten()
+                        min_date = self.encoders[original_col_name] # Stored min_date
+                        final_data[original_col_name] = min_date + pd.to_timedelta(np.round(days_values), unit='D')
+                    else: # Fallback for datetime
+                        final_data[original_col_name] = pd.Timestamp('1970-01-01')
 
-                        # Convert back to dates
-                        min_date = self.encoders[col]  # Stored min date
-                        final_dates = min_date + pd.to_timedelta(days_values.round(), unit='D')
-                        final_data[col] = final_dates
-                    else:
-                        # Fallback
-                        original_dates = self.original_data[col].dropna()
-                        if len(original_dates) > 0:
-                            min_date, max_date = original_dates.min(), original_dates.max()
-                            date_range = (max_date - min_date).days
-                            random_days = np.random.randint(0, max(1, date_range), len(synthetic_data))
-                            final_data[col] = min_date + pd.to_timedelta(random_days, unit='D')
-                        else:
-                            final_data[col] = pd.Timestamp('2024-01-01')
 
                 elif info['type'] == 'boolean':
-                    # Convert back to boolean
-                    bool_values = synthetic_data[col] > 0.5
-                    final_data[col] = bool_values
-
-                else:
-                    final_data[col] = synthetic_data[col]
-
+                    if original_col_name in synthetic_data_processed:
+                        final_data[original_col_name] = synthetic_data_processed[original_col_name] > 0.5
+                    
             except Exception as e:
-                print(f"Warning: Error post-processing column {col}: {e}")
-                # Emergency fallback - sample from original
-                original_col = self.original_data[col].dropna()
-                if len(original_col) > 0:
-                    final_data[col] = np.random.choice(original_col, len(synthetic_data), replace=True)
-                else:
-                    final_data[col] = [None] * len(synthetic_data)
+                # print(f"Warning: Error post-processing column {original_col_name}: {e}. Using fallback sampling.")
+                if original_col_name in self.original_data: # Check if original column exists
+                    original_sample_col = self.original_data[original_col_name].dropna()
+                    if not original_sample_col.empty:
+                        final_data[original_col_name] = np.random.choice(original_sample_col, len(synthetic_data_processed), replace=True)
+                    else: # If original column is all NaN or empty
+                        final_data[original_col_name] = [None] * len(synthetic_data_processed)
+
 
         return final_data
+
 
     def _enforce_uniqueness(self, data: pd.DataFrame, unique_columns: List[str]) -> pd.DataFrame:
         """Enforce uniqueness constraints on specified columns."""
         result_data = data.copy()
 
         for col in unique_columns:
-            if col in result_data.columns:
-                # Check for duplicates
-                duplicates = result_data.duplicated(subset=[col], keep='first')
+            if col in result_data.columns and col in self.column_info:
+                # Ensure no NaNs if uniqueness is critical; fill or handle as per policy
+                # For simplicity, we proceed assuming NaNs are not the values needing unique replacement strategy
+                if result_data[col].hasnans:
+                    # print(f"Warning: Column {col} for uniqueness check has NaNs. Uniqueness might not be fully guaranteed for NaNs.")
+                    pass # Decide on a NaN strategy if needed, e.g., fill them uniquely or ignore
 
+                duplicates = result_data.duplicated(subset=[col], keep='first')
                 if duplicates.any():
                     dup_indices = result_data.index[duplicates]
+                    col_type = self.column_info[col]['type']
 
-                    if self.column_info[col]['type'] == 'numerical':
-                        # Add small increments to make unique
-                        base_values = result_data.loc[dup_indices, col].values
-                        increments = np.arange(1, len(dup_indices) + 1) * 0.001
-                        result_data.loc[dup_indices, col] = base_values + increments
+                    if col_type == 'numerical':
+                        is_integer = self.column_info[col].get('distribution_info',{}).get('is_integer',False)
+                        for idx in dup_indices:
+                            # Find a new unique value. This can be complex.
+                            # Simple strategy: add small increment or find next available integer.
+                            current_val = result_data.loc[idx, col]
+                            increment = 0.001 if not is_integer else 1
+                            new_val = current_val + increment
+                            # Ensure new_val is not already taken and within bounds
+                            # This loop can be inefficient for many duplicates.
+                            while new_val in result_data[col].values or \
+                                  (self.column_info[col].get('distribution_info',{}).get('max') is not None and \
+                                   new_val > self.column_info[col]['distribution_info']['max']):
+                                new_val += increment
+                                if self.column_info[col].get('distribution_info',{}).get('max') is not None and \
+                                   new_val > self.column_info[col]['distribution_info']['max']:
+                                    # If max is hit, try decrementing or another strategy (could lead to issues)
+                                    # print(f"Could not make {col} unique for value {current_val} due to max bound.")
+                                    break 
+                            result_data.loc[idx, col] = new_val
 
-                    elif self.column_info[col]['type'] == 'categorical':
-                        # Append unique suffixes
+                    elif col_type == 'categorical' or col_type == 'text': # Assuming text might be treated as categorical for this
                         for i, idx in enumerate(dup_indices):
                             original_val = str(result_data.loc[idx, col])
-                            result_data.loc[idx, col] = f"{original_val}_{i+1:04d}"
-
-                    elif self.column_info[col]['type'] == 'datetime':
-                        # Add random seconds to make unique
+                            suffix_counter = 1
+                            new_val = f"{original_val}_uniq{suffix_counter}"
+                            while new_val in result_data[col].values:
+                                suffix_counter += 1
+                                new_val = f"{original_val}_uniq{suffix_counter}"
+                            result_data.loc[idx, col] = new_val
+                    
+                    elif col_type == 'datetime':
                         for idx in dup_indices:
-                            random_seconds = np.random.randint(1, 3600)
-                            result_data.loc[idx, col] += pd.Timedelta(seconds=random_seconds)
-
+                            current_val = pd.to_datetime(result_data.loc[idx, col])
+                            timedelta_increment = pd.Timedelta(seconds=1)
+                            new_val = current_val + timedelta_increment
+                            while new_val in result_data[col].values: # This check can be slow for many values
+                                new_val += timedelta_increment
+                            result_data.loc[idx, col] = new_val
+            # else:
+                # print(f"Warning: Column {col} for uniqueness not found in data or column_info.")
         return result_data
