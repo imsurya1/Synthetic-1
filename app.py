@@ -313,9 +313,15 @@ def generate_synthetic_data(num_rows, synthesis_method, privacy_level, unique_co
         progress_bar.progress(100)
         
         st.success(f"🎉 Successfully generated {len(synthetic_data)} synthetic rows!")
+        st.success(f"📊 Data shape: {synthetic_data.shape}")
+        st.success("✅ Results saved! Check the 'Synthesis Results' tab.")
         
-        # Auto-switch to results tab
-        st.rerun()
+        # Show a preview of generated data
+        st.subheader("Preview of Generated Data:")
+        st.dataframe(synthetic_data.head(3))
+        
+        # Don't auto-switch tabs to avoid confusion
+        st.info("👆 Go to the 'Synthesis Results' tab to see full results and download options.")
         
     except Exception as e:
         st.error(f"❌ Error during synthesis: {str(e)}")
@@ -339,7 +345,12 @@ def generate_synthetic_data(num_rows, synthesis_method, privacy_level, unique_co
 def show_results():
     st.header("📊 Synthesis Results")
     
-    if not st.session_state.synthesis_complete or st.session_state.synthetic_data is None:
+    # Debug info to help troubleshoot
+    st.write("**Debug Info:**")
+    st.write(f"Synthesis complete: {st.session_state.get('synthesis_complete', False)}")
+    st.write(f"Synthetic data exists: {st.session_state.get('synthetic_data') is not None}")
+    
+    if not st.session_state.get('synthesis_complete', False) or st.session_state.get('synthetic_data') is None:
         st.info("🔄 Generate synthetic data first in the 'Synthesis Configuration' tab")
         return
     
