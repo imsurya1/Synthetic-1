@@ -26,13 +26,15 @@ class AdvancedSynthesizer:
         # Initialize ACTGAN components
         from gretel_synthetics.actgan import ACTGAN
         self.actgan = ACTGAN(
-            epochs=50,
-            batch_size=500,
-            generator_dim=(256, 256),
+            epochs=100,  # More training epochs for better quality
+            batch_size=256,  # Smaller batch size for better stability
+            generator_dim=(512, 256),  # Larger generator network
             discriminator_dim=(256, 256),
             enforcing_min_max_values=True,
-            numerical_distributions='truncnorm',
+            numerical_distributions='beta',  # Better for bounded distributions
             numerical_clustering=True,
+            enforce_rounding=True,  # Ensure integer columns stay integers
+            enforce_min_max_values=True,  # Strictly enforce value bounds
             pac=10,
             log_frequency=True,
             verbose=True
@@ -49,16 +51,24 @@ class AdvancedSynthesizer:
         self.original_data = data.copy()
         self.column_info = column_info
         
-        # Configure field types for ACTGAN
+        # Configure field types for ACTGAN with enhanced constraints
         field_types = {}
         field_transformers = {}
         
         for col, info in column_info.items():
             if info['type'] == 'numerical':
                 field_types[col] = 'numerical'
-                # Ensure non-negative values where needed
-                if info.get('constraints', []).count('positive'):
-                    field_transformers[col] = {'enforce_min_value': 0}
+                # Get original column stats for constraints
+                orig_col = self.original_data[col]
+                min_val = orig_col.min()
+                max_val = orig_col.max()
+                
+                field_transformers[col] = {
+                    'enforce_min_value': max(0, min_val),  # Ensure non-negative
+                    'enforce_max_value': max_val,  # Keep upper bound
+                    'transform_method': 'beta',  # Better distribution preservation
+                    'enforce_rounding': info.get('distribution_info', {}).get('is_integer', False)
+                }
             elif info['type'] == 'categorical':
                 field_types[col] = 'categorical'
             elif info['type'] == 'datetime':
