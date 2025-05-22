@@ -76,7 +76,7 @@ class DataSynthesizer:
     
     def generate(self, num_rows: int, constraint_handling: str = "Reject Sampling") -> pd.DataFrame:
         """
-        Generate synthetic data.
+        Generate synthetic data with advanced correlation preservation.
         
         Args:
             num_rows: Number of rows to generate
@@ -89,13 +89,39 @@ class DataSynthesizer:
             raise ValueError("Synthesizer not fitted. Call fit() first.")
         
         try:
-            # Use advanced synthesizer for high-quality results
-            advanced_synth = AdvancedSynthesizer(random_seed=self.random_seed)
-            advanced_synth.fit(self.original_data, self.column_info)
-            synthetic_data = advanced_synth.generate(num_rows, unique_columns)
+            # Use advanced synthesizer with enhanced correlation preservation
+            advanced_synth = AdvancedSynthesizer(
+                random_seed=self.random_seed, 
+                correlation_threshold=0.8,
+                enforce_constraints=True
+            )
             
-            # Apply privacy adjustments
-            synthetic_data = self._apply_privacy_adjustments(synthetic_data)
+            # Get non-negative columns from column info
+            non_negative_cols = [
+                col for col, info in self.column_info.items()
+                if info['type'] == 'numerical' and 
+                   info.get('constraints', []).count('positive')
+            ]
+            
+            # Fit with additional constraints
+            advanced_synth.fit(
+                self.original_data, 
+                self.column_info,
+                non_negative_columns=non_negative_cols
+            )
+            
+            # Generate data with constraints
+            synthetic_data = advanced_synth.generate(
+                num_rows=num_rows,
+                unique_columns=self.unique_columns if hasattr(self, 'unique_columns') else None,
+                enforce_min_max=True
+            )
+            
+            # Apply privacy adjustments while preserving constraints
+            synthetic_data = self._apply_privacy_adjustments(
+                synthetic_data,
+                preserve_columns=non_negative_cols
+            )
             
             return synthetic_data
             

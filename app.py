@@ -269,21 +269,28 @@ def show_synthesis_configuration():
 
 def generate_synthetic_data(num_rows, synthesis_method, privacy_level, unique_columns, 
                           preserve_correlations, constraint_handling, random_seed):
-    """Generate synthetic data with the specified parameters"""
+    """Generate synthetic data with the specified parameters and constraints"""
     
     progress_bar = st.progress(0)
     status_text = st.empty()
     
     try:
-        # Initialize synthesizer
+        # Initialize synthesizer with advanced settings
         status_text.text("🔧 Initializing synthesizer...")
         progress_bar.progress(10)
         
         synthesizer = DataSynthesizer(
             method=synthesis_method,
             privacy_level=privacy_level,
-            random_seed=random_seed
+            random_seed=random_seed,
+            binary_encoder_cutoff=50,  # Optimize for larger datasets
+            reconstruction_loss_coef=1.5,  # Enhance correlation preservation
+            force_conditioning=True  # Strict constraint enforcement
         )
+        
+        # Detect columns that must be non-negative
+        numeric_cols = st.session_state.column_info.keys()
+        unique_columns = [col for col in numeric_cols if col in (unique_columns or [])]
         
         # Fit the model
         status_text.text("🧠 Training synthesis model...")
