@@ -27,21 +27,22 @@ class AdvancedSynthesizer:
         self.models = {}
         self.quality_target = 95
         self.enforce_positive = True  # Always enforce positive values
-        self.min_quality_threshold = 90  # Minimum quality threshold
+        self.min_quality_threshold = 95  # Increased minimum threshold
 
-        # Initialize enhanced model parameters
+        # Initialize enhanced model parameters with stricter quality settings
         self.model_params = {
-            'batch_size': 128,
-            'learning_rate': 0.001,
-            'hidden_layers': [256, 128, 64],
-            'dropout_rate': 0.2,
-            'generator_dim': (512, 256),  # Larger generator network
-            'discriminator_dim': (256, 256),
+            'batch_size': 64,  # Smaller batch for better learning
+            'learning_rate': 0.0005,  # Lower learning rate for stability
+            'hidden_layers': [512, 256, 128],  # Deeper network
+            'dropout_rate': 0.1,  # Lower dropout for better accuracy
+            'generator_dim': (1024, 512),  # Larger generator
+            'discriminator_dim': (512, 256),  # Larger discriminator
             'enforcing_min_max_values': True,
-            'numerical_distributions': 'beta',  # Better for bounded distributions
-            'enforce_rounding': True,  # Ensure integer columns stay integers
-            'enforce_min_max_values': True,  # Strictly enforce value bounds
-            'pac': 10,
+            'numerical_distributions': 'beta',
+            'enforce_rounding': True,
+            'enforce_min_max_values': True,
+            'enforce_positivity': True,  # Strictly enforce positive values
+            'pac': 5,  # Lower PAC for better quality
             'log_frequency': True,
             'verbose': True
         }
@@ -142,16 +143,17 @@ class AdvancedSynthesizer:
                 mean = orig_stats.get('mean', orig_col.mean())
                 std = orig_stats.get('std', orig_col.std())
 
-                # Transform negative values
-                result[col] = result[col].abs()  # Convert negatives to positive
-
-                # Scale to match original distribution while preserving positivity
+                # Ensure strictly positive values with enhanced scaling
+                result[col] = np.maximum(result[col], 0)  # Remove negatives
+                
+                # Apply enhanced scaling to match distribution
                 if result[col].mean() > 0:
                     scale_factor = mean / result[col].mean()
                     result[col] = result[col] * scale_factor
-
-                # Add small constant to ensure strictly positive
-                result[col] = result[col] + 1e-6
+                
+                # Ensure minimum positive value while preserving distribution
+                min_positive = max(1e-3, min_val if min_val > 0 else result[col][result[col] > 0].min())
+                result[col] = np.maximum(result[col], min_positive)
 
                 # Clip to valid range while preserving minimum positive value
                 result[col] = np.clip(result[col], min_val, max_val)
