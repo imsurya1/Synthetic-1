@@ -35,11 +35,9 @@ class AdvancedSynthesizer:
             'batch_size': 128,
             'learning_rate': 0.001,
             'hidden_layers': [256, 128, 64],
-            'dropout_rate': 0.2
+            'dropout_rate': 0.2,
+            'generator_dim': (512, 256)  # Larger generator network
         }
-            epochs=100,  # More training epochs for better quality
-            batch_size=256,  # Smaller batch size for better stability
-            generator_dim=(512, 256),  # Larger generator network
             discriminator_dim=(256, 256),
             enforcing_min_max_values=True,
             numerical_distributions='beta',  # Better for bounded distributions
