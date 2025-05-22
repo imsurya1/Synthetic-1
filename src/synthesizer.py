@@ -278,53 +278,80 @@ class DataSynthesizer:
         synthetic_data = pd.DataFrame()
         
         for col, info in self.column_info.items():
-            if info['type'] == 'numerical':
-                # Generate from normal distribution
-                mean = info['distribution_info'].get('mean', 0)
-                std = info['distribution_info'].get('std', 1)
-                values = np.random.normal(mean, std, num_rows)
+            try:
+                if info['type'] == 'numerical':
+                    # Generate from normal distribution with proper variation
+                    mean = info['distribution_info'].get('mean', 0)
+                    std = max(info['distribution_info'].get('std', 1), abs(mean) * 0.1)  # Ensure minimum std
+                    values = np.random.normal(mean, std, num_rows)
+                    
+                    # Apply constraints
+                    min_val = info['distribution_info'].get('min')
+                    max_val = info['distribution_info'].get('max')
+                    if min_val is not None and max_val is not None:
+                        # Add some buffer to avoid all values being at bounds
+                        range_buffer = (max_val - min_val) * 0.1
+                        values = np.clip(values, min_val - range_buffer, max_val + range_buffer)
+                    
+                    if info['distribution_info'].get('is_integer', False):
+                        values = values.round().astype(int)
+                    
+                    synthetic_data[col] = values
                 
-                # Apply constraints
-                min_val = info['distribution_info'].get('min')
-                max_val = info['distribution_info'].get('max')
-                if min_val is not None and max_val is not None:
-                    values = np.clip(values, min_val, max_val)
+                elif info['type'] == 'categorical':
+                    # Sample from original distribution with proper randomness
+                    unique_vals = info['distribution_info'].get('unique_values', [f'Category_{i}' for i in range(1, 6)])
+                    value_counts = info['distribution_info'].get('value_counts', {})
+                    
+                    if value_counts and len(value_counts) > 0:
+                        # Use original distribution but add some randomness
+                        probabilities = np.array(list(value_counts.values()), dtype=float)
+                        probabilities = probabilities / probabilities.sum()
+                        # Add small random noise to avoid identical patterns
+                        probabilities += np.random.uniform(0, 0.05, len(probabilities))
+                        probabilities = probabilities / probabilities.sum()
+                        values = np.random.choice(list(value_counts.keys()), num_rows, p=probabilities)
+                    else:
+                        values = np.random.choice(unique_vals, num_rows)
+                    
+                    synthetic_data[col] = values
                 
-                if info['distribution_info'].get('is_integer', False):
-                    values = values.round().astype(int)
+                elif info['type'] == 'datetime':
+                    # Generate dates within original range with proper variation
+                    min_date = pd.to_datetime(info['distribution_info'].get('min_date', '2020-01-01'))
+                    max_date = pd.to_datetime(info['distribution_info'].get('max_date', '2024-12-31'))
+                    
+                    date_range = max((max_date - min_date).days, 365)  # Ensure minimum 1 year range
+                    random_days = np.random.randint(0, date_range + 1, num_rows)
+                    values = min_date + pd.to_timedelta(random_days, unit='D')
+                    
+                    synthetic_data[col] = values
                 
-                synthetic_data[col] = values
-            
-            elif info['type'] == 'categorical':
-                # Sample from original distribution
-                unique_vals = info['distribution_info'].get('unique_values', ['Category_A'])
-                value_counts = info['distribution_info'].get('value_counts', {})
+                elif info['type'] == 'boolean':
+                    # Generate based on original true ratio with variation
+                    true_ratio = info['distribution_info'].get('true_ratio', 0.5)
+                    # Add slight random variation to avoid patterns
+                    varied_ratio = max(0.05, min(0.95, true_ratio + np.random.uniform(-0.1, 0.1)))
+                    values = np.random.random(num_rows) < varied_ratio
+                    synthetic_data[col] = values
                 
-                if value_counts:
-                    probabilities = np.array(list(value_counts.values()))
-                    probabilities = probabilities / probabilities.sum()
-                    values = np.random.choice(list(value_counts.keys()), num_rows, p=probabilities)
                 else:
-                    values = np.random.choice(unique_vals, num_rows)
-                
-                synthetic_data[col] = values
-            
-            elif info['type'] == 'datetime':
-                # Generate dates within original range
-                min_date = pd.to_datetime(info['distribution_info'].get('min_date', '2020-01-01'))
-                max_date = pd.to_datetime(info['distribution_info'].get('max_date', '2023-12-31'))
-                
-                date_range = (max_date - min_date).days
-                random_days = np.random.randint(0, date_range + 1, num_rows)
-                values = min_date + pd.to_timedelta(random_days, unit='D')
-                
-                synthetic_data[col] = values
-            
-            elif info['type'] == 'boolean':
-                # Generate based on original true ratio
-                true_ratio = info['distribution_info'].get('true_ratio', 0.5)
-                values = np.random.random(num_rows) < true_ratio
-                synthetic_data[col] = values
+                    # Default: treat as categorical
+                    original_col = self.original_data[col].dropna()
+                    if len(original_col) > 0:
+                        values = np.random.choice(original_col, num_rows, replace=True)
+                    else:
+                        values = [f'Value_{i}' for i in range(num_rows)]
+                    synthetic_data[col] = values
+                    
+            except Exception as e:
+                print(f"Error generating column {col}: {e}")
+                # Emergency fallback for this column
+                original_col = self.original_data[col].dropna()
+                if len(original_col) > 0:
+                    synthetic_data[col] = np.random.choice(original_col, num_rows, replace=True)
+                else:
+                    synthetic_data[col] = [None] * num_rows
         
         return synthetic_data
     
@@ -335,8 +362,28 @@ class DataSynthesizer:
         for col in self.original_data.columns:
             original_col = self.original_data[col].dropna()
             if len(original_col) > 0:
-                # Simple random sampling with replacement
-                synthetic_data[col] = np.random.choice(original_col, num_rows, replace=True)
+                # Handle different data types properly
+                if pd.api.types.is_numeric_dtype(original_col):
+                    # For numeric data, add some variation
+                    mean_val = original_col.mean()
+                    std_val = original_col.std() if original_col.std() > 0 else mean_val * 0.1
+                    synthetic_data[col] = np.random.normal(mean_val, std_val, num_rows)
+                    # Ensure we stay within reasonable bounds
+                    min_val, max_val = original_col.min(), original_col.max()
+                    synthetic_data[col] = np.clip(synthetic_data[col], min_val * 0.8, max_val * 1.2)
+                elif pd.api.types.is_datetime64_any_dtype(original_col):
+                    # For datetime data, sample within the range
+                    min_date = original_col.min()
+                    max_date = original_col.max()
+                    date_range = (max_date - min_date).days
+                    if date_range > 0:
+                        random_days = np.random.randint(0, max(1, date_range), num_rows)
+                        synthetic_data[col] = min_date + pd.to_timedelta(random_days, unit='D')
+                    else:
+                        synthetic_data[col] = [min_date] * num_rows
+                else:
+                    # For categorical data, sample from original values
+                    synthetic_data[col] = np.random.choice(original_col, num_rows, replace=True)
             else:
                 synthetic_data[col] = [None] * num_rows
         
