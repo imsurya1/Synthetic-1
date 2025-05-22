@@ -350,7 +350,12 @@ def show_results():
     st.write(f"Synthesis complete: {st.session_state.get('synthesis_complete', False)}")
     st.write(f"Synthetic data exists: {st.session_state.get('synthetic_data') is not None}")
     
-    if not st.session_state.get('synthesis_complete', False) or st.session_state.get('synthetic_data') is None:
+    # If synthetic data exists but flag isn't set, fix it
+    if st.session_state.get('synthetic_data') is not None and not st.session_state.get('synthesis_complete', False):
+        st.session_state.synthesis_complete = True
+        st.success("✅ Found generated data! Displaying results now.")
+    
+    if st.session_state.get('synthetic_data') is None:
         st.info("🔄 Generate synthetic data first in the 'Synthesis Configuration' tab")
         return
     
