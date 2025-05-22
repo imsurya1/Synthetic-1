@@ -31,17 +31,15 @@ class AdvancedSynthesizer:
 
         # Initialize enhanced model parameters
         self.model_params = {
-            'epochs': 200,  # Increased epochs for better learning
             'batch_size': 128,
             'learning_rate': 0.001,
             'hidden_layers': [256, 128, 64],
             'dropout_rate': 0.2,
-            'generator_dim': (512, 256)  # Larger generator network
+            'generator_dim': (512, 256),  # Larger generator network
+            'discriminator_dim': (256, 256),
+            'enforcing_min_max_values': True,
+            'numerical_distributions': 'beta'  # Better for bounded distributions
         }
-            discriminator_dim=(256, 256),
-            enforcing_min_max_values=True,
-            numerical_distributions='beta',  # Better for bounded distributions
-            numerical_clustering=True,
             enforce_rounding=True,  # Ensure integer columns stay integers
             enforce_min_max_values=True,  # Strictly enforce value bounds
             pac=10,
@@ -147,15 +145,15 @@ class AdvancedSynthesizer:
 
                 # Transform negative values
                 result[col] = result[col].abs()  # Convert negatives to positive
-                
+
                 # Scale to match original distribution while preserving positivity
                 if result[col].mean() > 0:
                     scale_factor = mean / result[col].mean()
                     result[col] = result[col] * scale_factor
-                
+
                 # Add small constant to ensure strictly positive
                 result[col] = result[col] + 1e-6
-                
+
                 # Clip to valid range while preserving minimum positive value
                 result[col] = np.clip(result[col], min_val, max_val)
 
@@ -230,7 +228,7 @@ class AdvancedSynthesizer:
     def _calculate_quality_score(self, synthetic_data: pd.DataFrame) -> float:
         """Calculate an enhanced quality score with stricter criteria."""
         score = 100  # Start with a perfect score
-        
+
         for col, info in self.column_info.items():
             if col not in synthetic_data.columns:
                 score -= 10  # Higher penalty for missing columns
@@ -239,21 +237,21 @@ class AdvancedSynthesizer:
             if info['type'] == 'numerical':
                 orig_data = self.original_data[col]
                 synth_data = synthetic_data[col]
-                
+
                 # Strict checks for negative values
                 if synth_data.min() < 0:
                     score -= 20  # Heavy penalty for negative values
-                
+
                 # Compare distributions
                 orig_mean = orig_data.mean()
                 synth_mean = synth_data.mean()
                 orig_std = orig_data.std()
                 synth_std = synth_data.std()
-                
+
                 # Stricter penalties for distribution mismatches
                 mean_diff = abs(orig_mean - synth_mean) / max(orig_mean, 0.1)
                 std_diff = abs(orig_std - synth_std) / max(orig_std, 0.1)
-                
+
                 score -= mean_diff * 15  # Increased penalty for mean difference
                 score -= std_diff * 15   # Increased penalty for std difference
 
