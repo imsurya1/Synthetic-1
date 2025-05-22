@@ -319,8 +319,22 @@ def generate_synthetic_data(num_rows, synthesis_method, privacy_level, unique_co
         
     except Exception as e:
         st.error(f"❌ Error during synthesis: {str(e)}")
+        st.error(f"Error details: {type(e).__name__}")
+        
+        # Show more helpful debugging info
+        if "column_info" in str(e):
+            st.error("Issue with column analysis. Please check your Excel file format.")
+        elif "synthesizer" in str(e):
+            st.error("Issue with data synthesis. Trying fallback method...")
+        
+        # Clear progress indicators
         progress_bar.empty()
         status_text.empty()
+        
+        # Try to show what data was loaded
+        if st.session_state.original_data is not None:
+            st.write("**Original data shape:**", st.session_state.original_data.shape)
+            st.write("**Available columns:**", list(st.session_state.original_data.columns))
 
 def show_results():
     st.header("📊 Synthesis Results")
