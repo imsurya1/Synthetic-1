@@ -282,10 +282,7 @@ def generate_synthetic_data(num_rows, synthesis_method, privacy_level, unique_co
         synthesizer = DataSynthesizer(
             method=synthesis_method,
             privacy_level=privacy_level,
-            random_seed=random_seed,
-            binary_encoder_cutoff=50,  # Optimize for larger datasets
-            reconstruction_loss_coef=1.5,  # Enhance correlation preservation
-            force_conditioning=True  # Strict constraint enforcement
+            random_seed=random_seed
         )
         
         # Detect columns that must be non-negative
