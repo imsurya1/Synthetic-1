@@ -38,11 +38,11 @@ class AdvancedSynthesizer:
             'generator_dim': (512, 256),  # Larger generator network
             'discriminator_dim': (256, 256),
             'enforcing_min_max_values': True,
-            'numerical_distributions': 'beta'  # Better for bounded distributions
+            'numerical_distributions': 'beta',  # Better for bounded distributions
+            'enforce_rounding': True,  # Ensure integer columns stay integers
+            'enforce_min_max_values': True,  # Strictly enforce value bounds
+            'pac': 10
         }
-            enforce_rounding=True,  # Ensure integer columns stay integers
-            enforce_min_max_values=True,  # Strictly enforce value bounds
-            pac=10,
             log_frequency=True,
             verbose=True
         )
