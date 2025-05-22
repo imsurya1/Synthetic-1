@@ -8,9 +8,12 @@ try:
     from sdv.single_table import GaussianCopulaSynthesizer, CTGANSynthesizer, CopulaGANSynthesizer
     from sdv.metadata import SingleTableMetadata
     from sdv.constraints import create_custom_constraint
+    SDV_AVAILABLE = True
 except ImportError:
-    # Fallback for environments without SDV
-    print("Warning: SDV not available. Using fallback synthesizer.")
+    SDV_AVAILABLE = False
+
+# Import our advanced synthesizer
+from .advanced_synthesizer import AdvancedSynthesizer
 
 class DataSynthesizer:
     """
@@ -86,11 +89,10 @@ class DataSynthesizer:
             raise ValueError("Synthesizer not fitted. Call fit() first.")
         
         try:
-            # Always use fallback generation for reliability
-            synthetic_data = self._fallback_generation(num_rows)
-            
-            # Apply post-processing
-            synthetic_data = self._post_process(synthetic_data)
+            # Use advanced synthesizer for high-quality results
+            advanced_synth = AdvancedSynthesizer(random_seed=self.random_seed)
+            advanced_synth.fit(self.original_data, self.column_info)
+            synthetic_data = advanced_synth.generate(num_rows, unique_columns)
             
             # Apply privacy adjustments
             synthetic_data = self._apply_privacy_adjustments(synthetic_data)
@@ -98,9 +100,9 @@ class DataSynthesizer:
             return synthetic_data
             
         except Exception as e:
-            # Emergency fallback - create basic synthetic data
-            print(f"Fallback generation failed: {e}")
-            return self._emergency_fallback(num_rows)
+            print(f"Advanced generation failed: {e}")
+            # Fallback to improved statistical generation
+            return self._fallback_generation(num_rows)
     
     def _create_metadata(self, data: pd.DataFrame, column_info: Dict[str, Any]) -> 'SingleTableMetadata':
         """Create SDV metadata object."""
