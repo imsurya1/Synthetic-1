@@ -43,8 +43,8 @@ class AdvancedSynthesizer:
             'enforce_min_max_values': True,  # Strictly enforce value bounds
             'pac': 10
         }
-            log_frequency=True,
-            verbose=True
+        log_frequency=True,
+        verbose=True
         )
 
     def fit(self, data: pd.DataFrame, column_info: Dict[str, Any]):
