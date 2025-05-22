@@ -29,16 +29,19 @@ class AdvancedSynthesizer:
         self.models = {}
         self.correlation_matrix = None
         self.pca_model = None
-        self.quality_target = 95
-        self.min_quality_threshold = 95
+        self.quality_target = 98
+        self.min_quality_threshold = 96
         
         # Enhanced parameters for better quality
         self.positive_enforcement = True
         self.strict_quality_mode = True
-        self.min_positive_value = 1e-6
-        self.distribution_matching_weight = 0.4
-        self.correlation_preservation_weight = 0.3
-        self.constraint_enforcement_weight = 0.3
+        self.min_positive_value = 1e-8
+        self.distribution_matching_weight = 0.45
+        self.correlation_preservation_weight = 0.35
+        self.constraint_enforcement_weight = 0.2
+        self.max_optimization_attempts = 15
+        self.moment_matching_threshold = 0.01
+        self.distribution_similarity_threshold = 0.95
 
     def fit(self, data: pd.DataFrame, column_info: Dict[str, Any]):
         """
@@ -191,13 +194,16 @@ class AdvancedSynthesizer:
                     # Continuous data - use multiple model types
                     models = {}
                     
-                    # Gaussian Mixture Model
-                    n_components = min(5, max(2, len(col_data.unique()) // 10))
+                    # Enhanced Gaussian Mixture Model
+                    n_components = min(8, max(3, len(col_data.unique()) // 8))
                     gmm = GaussianMixture(
                         n_components=n_components,
                         random_state=self.random_seed,
                         covariance_type='full',
-                        max_iter=200
+                        max_iter=500,
+                        tol=1e-5,
+                        reg_covar=1e-6,
+                        n_init=5
                     )
                     gmm.fit(col_data.values.reshape(-1, 1))
                     models['gmm'] = gmm
@@ -567,18 +573,31 @@ class AdvancedSynthesizer:
                     col_score = 0  # Zero score for negative values
                     print(f"Critical: Column {col} contains negative values")
                 else:
-                    # Distribution similarity
+                    # Enhanced distribution similarity checks
                     try:
-                        # Statistical tests
+                        # Multiple statistical tests
                         ks_stat, _ = stats.ks_2samp(orig_data, synth_data)
-                        col_score -= ks_stat * 30
+                        anderson_stat = stats.anderson_ksamp([orig_data, synth_data]).statistic
                         
-                        # Moment matching
-                        mean_diff = abs(orig_data.mean() - synth_data.mean()) / max(orig_data.mean(), 1e-6)
-                        std_diff = abs(orig_data.std() - synth_data.std()) / max(orig_data.std(), 1e-6)
+                        # Weighted combination of tests
+                        combined_stat = (ks_stat * 0.6 + anderson_stat * 0.4)
+                        col_score -= combined_stat * 25
                         
-                        col_score -= min(mean_diff * 20, 20)
-                        col_score -= min(std_diff * 15, 15)
+                        # Enhanced moment matching
+                        mean_diff = abs(orig_data.mean() - synth_data.mean()) / max(abs(orig_data.mean()), 1e-8)
+                        std_diff = abs(orig_data.std() - synth_data.std()) / max(abs(orig_data.std()), 1e-8)
+                        skew_diff = abs(orig_data.skew() - synth_data.skew()) / max(abs(orig_data.skew()), 1e-8)
+                        
+                        # Progressive penalties
+                        col_score -= min(mean_diff * 15, 15)  # Reduced penalty for mean
+                        col_score -= min(std_diff * 10, 10)   # Reduced penalty for std
+                        col_score -= min(skew_diff * 5, 5)    # Small penalty for skew
+                        
+                        # Additional distribution checks
+                        if mean_diff > self.moment_matching_threshold:
+                            col_score -= 5  # Additional penalty for poor mean matching
+                        if std_diff > self.moment_matching_threshold:
+                            col_score -= 5  # Additional penalty for poor std matching
                         
                         # Range preservation
                         range_orig = orig_data.max() - orig_data.min()
